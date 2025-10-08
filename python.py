@@ -82,6 +82,7 @@ def get_ai_analysis(data_for_ai, api_key):
 ## Khung Chatbot Hỏi Đáp với Gemini (Chức năng mới)
 # ------------------------------------------------------------------
 
+# --- Hàm xử lý khung chat đã được CẬP NHẬT ---
 def run_chatbot(df_processed):
     """Xây dựng giao diện và logic cho khung chat hỏi đáp."""
     
@@ -92,7 +93,6 @@ def run_chatbot(df_processed):
         st.error("Lỗi: Không tìm thấy Khóa API. Vui lòng cấu hình Khóa 'GEMINI_API_KEY' trong Streamlit Secrets để sử dụng tính năng này.")
         return
 
-    # Khởi tạo client và model
     try:
         client = genai.Client(api_key=api_key)
         model_name = 'gemini-2.5-flash'
@@ -100,14 +100,12 @@ def run_chatbot(df_processed):
         st.error(f"Lỗi khởi tạo Gemini Client: {e}")
         return
 
-    # Thiết lập lịch sử chat trong session state
     if "messages" not in st.session_state:
         st.session_state.messages = []
         
-    # Chuẩn bị context dữ liệu để gửi cùng prompt
     data_context = df_processed.to_markdown(index=False)
     
-    # Prompt hệ thống, cung cấp bối cảnh cho Gemini
+    # *** ĐỊNH NGHĨA SYSTEM PROMPT RIÊNG BIỆT ***
     system_prompt = f"""
     Bạn là một trợ lý phân tích tài chính chuyên nghiệp, thân thiện. 
     Nhiệm vụ của bạn là trả lời các câu hỏi của người dùng dựa trên dữ liệu Báo cáo Tài chính đã được phân tích sau.
@@ -119,35 +117,37 @@ def run_chatbot(df_processed):
     Nếu câu hỏi không liên quan đến dữ liệu tài chính, hãy lịch sự từ chối trả lời.
     """
     
-    # Hiển thị lịch sử chat
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
-    # Xử lý input từ người dùng
     if prompt := st.chat_input("Hỏi Gemini về báo cáo tài chính này..."):
-        # Thêm tin nhắn người dùng vào lịch sử
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
 
-        # Tạo nội dung (contents) gửi đến API (bao gồm system prompt và lịch sử chat)
-        contents = [
-            {"role": "system", "parts": [{"text": system_prompt}]}
-        ]
+        # *** PHẦN SỬA LỖI LỚN: XÂY DỰNG CONTENTS CHỈ VỚI VAI TRÒ HỢP LỆ (user/model) ***
+        # Các tin nhắn cần được chuyển đổi vai trò 'assistant' thành 'model' (hoặc 'user' nếu cần)
+        # và loại bỏ vai trò 'system'
         
-        # Thêm các tin nhắn cũ vào contents
+        contents = []
         for message in st.session_state.messages:
-            contents.append({"role": message["role"], "parts": [{"text": message["content"]}]})
+            # Sửa vai trò 'assistant' của Streamlit thành vai trò 'model' của Google GenAI API
+            role = "model" if message["role"] == "assistant" else "user"
+            
+            # Chỉ thêm tin nhắn của user và model/assistant vào lịch sử contents
+            if role in ["user", "model"]: 
+                contents.append({"role": role, "parts": [{"text": message["content"]}]})
         
         # Gọi Gemini API
         with st.chat_message("assistant"):
             with st.spinner("Gemini đang phân tích..."):
                 try:
-                    # Gọi API với toàn bộ lịch sử và system prompt
                     response = client.models.generate_content(
                         model=model_name,
-                        contents=contents
+                        contents=contents, # Gửi lịch sử chat hợp lệ
+                        # THÊM SYSTEM INSTRUCTION ĐỂ ĐẶT NGỮ CẢNH:
+                        config={"system_instruction": system_prompt} 
                     )
                     
                     ai_response = response.text
@@ -161,7 +161,7 @@ def run_chatbot(df_processed):
                     ai_response = f"Lỗi không xác định: {e}"
                     st.error(ai_response)
             
-            # Thêm phản hồi của AI vào lịch sử chat
+            # Thêm phản hồi của AI vào lịch sử chat Streamlit (với vai trò 'assistant')
             st.session_state.messages.append({"role": "assistant", "content": ai_response})
 
 # ------------------------------------------------------------------
