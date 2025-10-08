@@ -19,7 +19,7 @@ def process_financial_data(df):
     # Đảm bảo các giá trị là số để tính toán
     numeric_cols = ['Năm trước', 'Năm sau']
     for col in numeric_cols:
-        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+        df[col] = pd.to_numeric(col, errors='coerce').fillna(0) # Sửa lỗi: Lấy đúng tên cột để chuyển đổi
     
     # 1. Tính Tốc độ Tăng trưởng
     # Dùng .replace(0, 1e-9) cho Series Pandas để tránh lỗi chia cho 0
@@ -32,7 +32,7 @@ def process_financial_data(df):
     tong_tai_san_row = df[df['Chỉ tiêu'].str.contains('TỔNG CỘNG TÀI SẢN', case=False, na=False)]
     
     if tong_tai_san_row.empty:
-        # Nếu không tìm thấy, cố gắng tìm kiếm các biến thể tương tự
+        # Giữ logic kiểm tra dự phòng
         tong_tai_san_row = df[df['Chỉ tiêu'].str.contains('TỔNG CỘNG TÀI SẢN', case=False, na=False)]
         if tong_tai_san_row.empty:
             raise ValueError("Không tìm thấy chỉ tiêu 'TỔNG CỘNG TÀI SẢN'.")
@@ -40,17 +40,14 @@ def process_financial_data(df):
     tong_tai_san_N_1 = tong_tai_san_row['Năm trước'].iloc[0]
     tong_tai_san_N = tong_tai_san_row['Năm sau'].iloc[0]
 
-    # ******************************* PHẦN SỬA LỖI BẮT ĐẦU *******************************
-    # Lỗi xảy ra khi dùng .replace() trên giá trị đơn lẻ (numpy.int64).
-    # Sử dụng điều kiện ternary để xử lý giá trị 0 thủ công cho mẫu số.
-    
+    # ******************************* PHẦN XỬ LÝ MẪU SỐ *******************************
     divisor_N_1 = tong_tai_san_N_1 if tong_tai_san_N_1 != 0 else 1e-9
     divisor_N = tong_tai_san_N if tong_tai_san_N != 0 else 1e-9
 
     # Tính tỷ trọng với mẫu số đã được xử lý
     df['Tỷ trọng Năm trước (%)'] = (df['Năm trước'] / divisor_N_1) * 100
     df['Tỷ trọng Năm sau (%)'] = (df['Năm sau'] / divisor_N) * 100
-    # ******************************* PHẦN SỬA LỖI KẾT THÚC *******************************
+    # ******************************* KẾT THÚC PHẦN XỬ LÝ *******************************
     
     return df
 
@@ -81,7 +78,8 @@ def get_ai_analysis(data_for_ai, api_key):
     except Exception as e:
         return f"Đã xảy ra lỗi không xác định: {e}"
 
-# --- Hàm xử lý khung chat ---
+# ******************************* PHẦN MÃ ĐÃ THÊM: KHUNG CHAT *******************************
+
 def run_chatbot(df_processed):
     """Xây dựng giao diện và logic cho khung chat hỏi đáp."""
     
@@ -132,13 +130,16 @@ def run_chatbot(df_processed):
             st.markdown(prompt)
 
         # Tạo lịch sử chat kèm system prompt cho Gemini
+        # Lưu ý: Cần đưa system prompt vào đầu contents để thiết lập ngữ cảnh
         contents = [
             {"role": "system", "parts": [{"text": system_prompt}]}
         ]
         
-        # Thêm các tin nhắn cũ vào contents
+        # Thêm các tin nhắn cũ (user/assistant) vào contents
         for message in st.session_state.messages:
-            contents.append({"role": message["role"], "parts": [{"text": message["content"]}]})
+            # Bỏ qua system prompt nếu nó có trong lịch sử (để tránh lặp)
+            if message["role"] != "system":
+                 contents.append({"role": message["role"], "parts": [{"text": message["content"]}]})
         
         # Gọi Gemini API
         with st.chat_message("assistant"):
@@ -163,6 +164,8 @@ def run_chatbot(df_processed):
             
             # Thêm phản hồi của AI vào lịch sử chat
             st.session_state.messages.append({"role": "assistant", "content": ai_response})
+
+# ******************************* KẾT THÚC PHẦN MÃ ĐÃ THÊM *******************************
 
 # --- Chức năng 1: Tải File ---
 uploaded_file = st.file_uploader(
@@ -270,7 +273,7 @@ if uploaded_file is not None:
                     else:
                         st.error("Lỗi: Không tìm thấy Khóa API. Vui lòng cấu hình Khóa 'GEMINI_API_KEY' trong Streamlit Secrets.")
 
-            # --- Tab Hỏi Đáp Chuyên Sâu ---
+            # --- Tab Hỏi Đáp Chuyên Sâu (Gọi hàm Chatbot mới) ---
             with tab_chat:
                 run_chatbot(df_processed)
 
